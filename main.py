@@ -225,7 +225,7 @@ class OpenCodeClientPlugin(Star):
                 yield event.plain_result("思考中...")
                 result = await self.client.send_message(session_id, args)
                 response_text = extract_text_from_parts(result.get("parts", []))
-                header = f"Opencode: {session_id}\n---\n"
+                header = f"Opencode: {session_id}\n\n---\n"
                 yield event.plain_result(header + (response_text or "(无响应)"))
 
             elif command == "session":
@@ -243,7 +243,9 @@ class OpenCodeClientPlugin(Star):
                     return
                 session_id = self._sessions.get(self._get_session_key(event))
                 if not session_id:
-                    yield event.plain_result("当前没有活跃会话，使用 /oc chat 开始对话\n或使用 /oc session {id} 切换会话")
+                    yield event.plain_result(
+                        "当前没有活跃会话，使用 /oc chat 开始对话\n或使用 /oc session {id} 切换会话"
+                    )
                     return
                 session = await self.client.get_session(session_id)
                 yield event.plain_result(

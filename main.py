@@ -160,21 +160,29 @@ class OpenCodeClientPlugin(Star):
     @filter.event_message_type(filter.EventMessageType.ALL, priority=3)
     async def on_message(self, event: AstrMessageEvent):
         """消息拦截器，处理 attached 模式"""
+        logger.debug(
+            f"[on_message] 收到消息: {event.message_str[:50] if event.message_str else 'empty'}"
+        )
         if not self.client:
+            logger.debug("[on_message] client 未初始化")
             return
         key = self._get_session_key(event)
         session_id = self._attached_sessions.get(key)
+        logger.debug(
+            f"[on_message] key={key}, session_id={session_id}, attached={self._attached_sessions}"
+        )
         if not session_id:
-            return
-        if event.is_at_or_wake_command:
+            logger.debug("[on_message] 未找到 attached session")
             return
         message_str = event.message_str.strip()
         if not message_str:
+            logger.debug("[on_message] 消息为空")
             return
+        logger.info(f"[on_message] 处理 attached 消息: {message_str[:50]}")
         try:
             result = await self.client.send_message(session_id, message_str)
             response_text = extract_text_from_parts(result.get("parts", []))
-            header = f"Opencode: {session_id}\n---\n"
+            header = f"Opencode: {session_id}\n\n---\n"
             yield event.plain_result(header + (response_text or "(无响应)"))
         except httpx.HTTPStatusError as e:
             logger.error(f"HTTP 错误: {e}")

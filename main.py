@@ -119,6 +119,7 @@ class OpenCodeClientPlugin(Star):
         self.config = config
         self.client: Optional[OpenCodeClient] = None
         self._sessions: dict[str, str] = {}
+        self._attached_sessions: dict[str, str] = {}
 
     async def initialize(self):
         server_url = self.config.get("server_url", "http://localhost:4096")
@@ -156,6 +157,32 @@ class OpenCodeClientPlugin(Star):
             logger.info(f"创建新会话: {session['id']}")
         return self._sessions[key]
 
+    @filter.message()
+    async def on_message(self, event: AstrMessageEvent):
+        """消息拦截器，处理 attached 模式"""
+        if not self.client:
+            return
+        key = self._get_session_key(event)
+        session_id = self._attached_sessions.get(key)
+        if not session_id:
+            return
+        message_str = event.message_str.strip()
+        if message_str.startswith("/oc "):
+            return
+        try:
+            result = await self.client.send_message(session_id, message_str)
+            response_text = extract_text_from_parts(result.get("parts", []))
+            yield event.plain_result(response_text or "(无响应)")
+        except httpx.HTTPStatusError as e:
+            logger.error(f"HTTP 错误: {e}")
+            yield event.plain_result(f"请求失败: {e.response.status_code}")
+        except httpx.RequestError as e:
+            logger.error(f"网络错误: {e}")
+            yield event.plain_result(f"网络错误: {e}")
+        except Exception as e:
+            logger.error(f"错误: {e}")
+            yield event.plain_result(f"错误: {e}")
+
     @filter.command("oc")
     async def opencode_command(self, event: AstrMessageEvent):
         """OpenCode 指令处理器"""
@@ -166,14 +193,16 @@ class OpenCodeClientPlugin(Star):
             yield event.plain_result(
                 "用法: /oc <command> [args]\n"
                 "命令:\n"
-                "  /oc chat <message>  - 与 AI 对话\n"
-                "  /oc session         - 显示当前会话信息\n"
-                "  /oc sessions        - 列出所有会话\n"
-                "  /oc new             - 创建新会话\n"
-                "  /oc clear           - 清除当前会话\n"
-                "  /oc commands        - 列出可用命令\n"
-                "  /oc cmd <cmd>       - 执行斜杠命令\n"
-                "  /oc health          - 检查服务器状态"
+                "  /oc chat <message>    - 与 AI 对话\n"
+                "  /oc session [id]      - 显示/切换会话\n"
+                "  /oc sessions          - 列出所有会话\n"
+                "  /oc attach <id>       - 绑定会话，消息自动发送\n"
+                "  /oc deattach          - 解绑会话\n"
+                "  /oc new [title]       - 创建新会话\n"
+                "  /oc clear             - 清除当前会话\n"
+                "  /oc commands          - 列出可用命令\n"
+                "  /oc cmd <cmd>         - 执行斜杠命令\n"
+                "  /oc health            - 检查服务器状态"
             )
             return
 
@@ -196,9 +225,21 @@ class OpenCodeClientPlugin(Star):
                 yield event.plain_result(response_text or "(无响应)")
 
             elif command == "session":
+                if args:
+                    try:
+                        session = await self.client.get_session(args)
+                        self._sessions[self._get_session_key(event)] = args
+                        yield event.plain_result(
+                            f"已切换到会话:\n"
+                            f"  ID: {session.get('id', 'N/A')}\n"
+                            f"  标题: {session.get('title', 'N/A')}"
+                        )
+                    except httpx.HTTPStatusError:
+                        yield event.plain_result(f"会话不存在: {args}")
+                    return
                 session_id = self._sessions.get(self._get_session_key(event))
                 if not session_id:
-                    yield event.plain_result("当前没有活跃会话，使用 /oc chat 开始对话")
+                    yield event.plain_result("当前没有活跃会话，使用 /oc chat 开始对话\n或使用 /oc session {id} 切换会话")
                     return
                 session = await self.client.get_session(session_id)
                 yield event.plain_result(
@@ -233,6 +274,32 @@ class OpenCodeClientPlugin(Star):
                     yield event.plain_result("已清除当前会话")
                 else:
                     yield event.plain_result("没有活跃会话")
+
+            elif command == "attach":
+                if not args:
+                    yield event.plain_result("用法: /oc attach <session-id>")
+                    return
+                try:
+                    session = await self.client.get_session(args)
+                    key = self._get_session_key(event)
+                    self._sessions[key] = args
+                    self._attached_sessions[key] = args
+                    yield event.plain_result(
+                        f"已绑定会话，消息将自动发送:\n"
+                        f"  ID: {session.get('id', 'N/A')}\n"
+                        f"  标题: {session.get('title', 'N/A')}\n"
+                        f"使用 /oc deattach 解绑"
+                    )
+                except httpx.HTTPStatusError:
+                    yield event.plain_result(f"会话不存在: {args}")
+
+            elif command == "deattach":
+                key = self._get_session_key(event)
+                if key in self._attached_sessions:
+                    del self._attached_sessions[key]
+                    yield event.plain_result("已解绑会话，恢复正常模式")
+                else:
+                    yield event.plain_result("当前未绑定会话")
 
             elif command == "commands":
                 commands = await self.client.list_commands()

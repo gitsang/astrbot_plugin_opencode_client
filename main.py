@@ -157,7 +157,7 @@ class OpenCodeClientPlugin(Star):
             logger.info(f"创建新会话: {session['id']}")
         return self._sessions[key]
 
-    @filter.message()
+    @filter.event_message_type(filter.EventMessageType.ALL, priority=3)
     async def on_message(self, event: AstrMessageEvent):
         """消息拦截器，处理 attached 模式"""
         if not self.client:
@@ -168,6 +168,8 @@ class OpenCodeClientPlugin(Star):
             return
         message_str = event.message_str.strip()
         if message_str.startswith("/oc "):
+            return
+        if event.is_at_or_wake_command:
             return
         try:
             result = await self.client.send_message(session_id, message_str)

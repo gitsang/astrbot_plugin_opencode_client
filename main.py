@@ -166,15 +166,16 @@ class OpenCodeClientPlugin(Star):
         session_id = self._attached_sessions.get(key)
         if not session_id:
             return
-        message_str = event.message_str.strip()
-        if message_str.startswith("/oc "):
-            return
         if event.is_at_or_wake_command:
+            return
+        message_str = event.message_str.strip()
+        if not message_str:
             return
         try:
             result = await self.client.send_message(session_id, message_str)
             response_text = extract_text_from_parts(result.get("parts", []))
-            yield event.plain_result(response_text or "(无响应)")
+            header = f"Opencode: {session_id}\n---\n"
+            yield event.plain_result(header + (response_text or "(无响应)"))
         except httpx.HTTPStatusError as e:
             logger.error(f"HTTP 错误: {e}")
             yield event.plain_result(f"请求失败: {e.response.status_code}")
@@ -224,7 +225,8 @@ class OpenCodeClientPlugin(Star):
                 yield event.plain_result("思考中...")
                 result = await self.client.send_message(session_id, args)
                 response_text = extract_text_from_parts(result.get("parts", []))
-                yield event.plain_result(response_text or "(无响应)")
+                header = f"Opencode: {session_id}\n---\n"
+                yield event.plain_result(header + (response_text or "(无响应)"))
 
             elif command == "session":
                 if args:
@@ -259,7 +261,7 @@ class OpenCodeClientPlugin(Star):
                 lines = ["会话列表:"]
                 for i, s in enumerate(sessions[:10], 1):
                     lines.append(
-                        f"  {i}. [{s.get('id', 'N/A')[:8]}] {s.get('title', 'N/A')}"
+                        f"  {i}. [{s.get('id', 'N/A')}] {s.get('title', 'N/A')}"
                     )
                 yield event.plain_result("\n".join(lines))
 
